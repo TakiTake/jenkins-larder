@@ -1,0 +1,60 @@
+# TODO (T074): Create CI/CD pipeline for automated testing
+
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run unit tests
+      run: make test-unit
+
+    - name: Run integration tests
+      run: make test-integration
+
+    - name: Run contract tests
+      run: make test-contract
+
+    - name: Run linter
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Build binary
+      run: make build
+
+    - name: Build Docker image
+      run: docker build -t jenkins-mirror:${{ github.sha }} .
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: jenkins-mirror
+        path: bin/jenkins-mirror

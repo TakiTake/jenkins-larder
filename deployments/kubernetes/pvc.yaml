@@ -1,0 +1,13 @@
+# TODO (T070): Create Kubernetes PersistentVolumeClaim
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-mirror-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15Gi  # Slightly larger than limit_bytes to allow for metadata
+  storageClassName: standard  # Adjust based on your cluster
