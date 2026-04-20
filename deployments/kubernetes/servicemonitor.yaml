@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jenkins-larder
+  labels:
+    app: jenkins-mirror
+spec:
+  selector:
+    matchLabels:
+      app: jenkins-mirror
+      component: metrics
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics

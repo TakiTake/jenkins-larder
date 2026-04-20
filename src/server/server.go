@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/yourorg/jenkins-larder/src/admin"
 	"github.com/yourorg/jenkins-larder/src/config"
 )
 
@@ -42,6 +44,25 @@ func (s *Server) PluginHandler() http.Handler {
 	return mux
 }
 
+// AdminHandler returns the HTTP handler for admin API requests.
+// Useful for testing with httptest.
+func (s *Server) AdminHandler() http.Handler {
+	mux := http.NewServeMux()
+	adminHandler := admin.NewAdminHandler(s.cache)
+	mux.HandleFunc("/admin/cache/invalidate", adminHandler.InvalidateCacheHandler)
+	mux.HandleFunc("/admin/cache/stats", adminHandler.CacheStatsHandler)
+	mux.HandleFunc("/admin/health", adminHandler.HealthCheckHandler)
+	return mux
+}
+
+// MetricsHandler returns the HTTP handler for Prometheus metrics.
+// Useful for testing with httptest.
+func (s *Server) MetricsHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	return mux
+}
+
 // Start starts all HTTP servers (plugin, admin, metrics)
 func (s *Server) Start() error {
 	// Set up plugin download server
@@ -57,25 +78,16 @@ func (s *Server) Start() error {
 	}
 
 	// Set up admin server
-	adminMux := http.NewServeMux()
-	adminMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
 	s.adminServer = &http.Server{
 		Addr:         fmt.Sprintf(":%d", s.config.Admin.Port),
-		Handler:      adminMux,
+		Handler:      s.AdminHandler(),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 
 	// Set up metrics server
 	metricsMux := http.NewServeMux()
-	metricsMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("# TODO: Prometheus metrics\n"))
-	})
+	metricsMux.Handle("/metrics", promhttp.Handler())
 
 	s.metricsServer = &http.Server{
 		Addr:         fmt.Sprintf(":%d", s.config.Server.MetricsPort),

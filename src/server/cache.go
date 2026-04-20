@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/yourorg/jenkins-larder/src/admin"
 	"github.com/yourorg/jenkins-larder/src/config"
+	"github.com/yourorg/jenkins-larder/src/metrics"
 	"github.com/yourorg/jenkins-larder/src/storage"
 	"github.com/yourorg/jenkins-larder/src/upstream"
 )
@@ -52,13 +54,29 @@ func NewCacheService(cfg *config.Config) (*CacheService, error) {
 	// Initialize deduplication manager
 	dedupManager := NewDeduplicationManager()
 
-	return &CacheService{
+	cs := &CacheService{
 		storage:  stor,
 		lru:      lruTracker,
 		upstream: upstreamClient,
 		dedup:    dedupManager,
 		config:   cfg,
-	}, nil
+	}
+
+	// Initialize storage metrics
+	metrics.StorageLimitBytes.Set(float64(cfg.Storage.LimitBytes))
+	metrics.UpdateCachedPlugins(lruTracker.Len())
+	cs.updateStorageMetrics()
+
+	return cs, nil
+}
+
+// updateStorageMetrics refreshes the storage usage gauge
+func (c *CacheService) updateStorageMetrics() {
+	currentSize, err := c.storage.GetCurrentSize()
+	if err == nil {
+		metrics.UpdateStorageMetrics(currentSize, c.config.Storage.LimitBytes)
+		metrics.UpdateCachedPlugins(c.lru.Len())
+	}
 }
 
 // GetPlugin retrieves a plugin, downloading from upstream if necessary
@@ -83,6 +101,8 @@ func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension s
 			}
 
 			slog.Info("Cache HIT", "plugin", name, "version", version)
+			metrics.RecordDownload(name, version, "cache")
+			metrics.RecordBandwidthSaved(plugin.FileSize)
 			return plugin, file, nil
 		}
 
@@ -96,11 +116,13 @@ func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension s
 	})
 
 	if err != nil {
+		metrics.RecordUpstreamError("download_failed")
 		// Try to serve stale cached file from disk if upstream failed
 		plugin, file, staleErr := c.serveStaleFromDisk(name, version, extension)
 		if staleErr == nil {
 			slog.Warn("Serving stale cached plugin due to upstream failure",
 				"plugin", name, "version", version, "upstream_error", err)
+			metrics.RecordDownload(name, version, "stale")
 			return plugin, file, nil
 		}
 		return nil, nil, err
@@ -224,6 +246,10 @@ func (c *CacheService) downloadAndCache(ctx context.Context, name, version, exte
 	// Add to LRU tracker
 	c.lru.Add(plugin)
 
+	// Record metrics
+	metrics.RecordDownload(name, version, "upstream")
+	c.updateStorageMetrics()
+
 	slog.Info("Plugin cached successfully",
 		"plugin", name,
 		"version", version,
@@ -232,6 +258,72 @@ func (c *CacheService) downloadAndCache(ctx context.Context, name, version, exte
 	)
 
 	return plugin, nil
+}
+
+// InvalidatePlugin removes a specific plugin from the cache
+func (c *CacheService) InvalidatePlugin(name, version string) error {
+	key := fmt.Sprintf("%s:%s", name, version)
+
+	// Check if plugin exists in LRU
+	plugin, found := c.lru.Get(key)
+	if !found {
+		return fmt.Errorf("plugin not found in cache: %s:%s", name, version)
+	}
+
+	// Delete plugin file
+	if err := os.Remove(plugin.FilePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete plugin file: %w", err)
+	}
+
+	// Delete metadata
+	metadataPath := filepath.Join(c.config.Storage.Path, "metadata", plugin.Name, plugin.Version+".json")
+	if err := os.Remove(metadataPath); err != nil && !os.IsNotExist(err) {
+		slog.Warn("Failed to delete metadata during invalidation", "error", err)
+	}
+
+	// Remove from LRU
+	c.lru.Remove(key)
+
+	slog.Info("Plugin invalidated", "plugin", name, "version", version)
+	return nil
+}
+
+// GetStats returns current cache statistics
+func (c *CacheService) GetStats() (*admin.CacheStats, error) {
+	currentSize, err := c.storage.GetCurrentSize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get storage size: %w", err)
+	}
+
+	utilization := 0.0
+	if c.config.Storage.LimitBytes > 0 {
+		utilization = float64(currentSize) / float64(c.config.Storage.LimitBytes) * 100
+	}
+
+	return &admin.CacheStats{
+		TotalPlugins:       c.lru.Len(),
+		TotalSizeBytes:     currentSize,
+		LimitBytes:         c.config.Storage.LimitBytes,
+		UtilizationPercent: utilization,
+	}, nil
+}
+
+// IsHealthy checks if the cache service is operational
+func (c *CacheService) IsHealthy() map[string]string {
+	health := map[string]string{
+		"storage":  "ok",
+		"upstream": "ok",
+	}
+
+	// Check storage is writable
+	testPath := filepath.Join(c.config.Storage.Path, ".health-check")
+	if err := os.WriteFile(testPath, []byte("ok"), 0644); err != nil {
+		health["storage"] = "error: " + err.Error()
+	} else {
+		os.Remove(testPath)
+	}
+
+	return health
 }
 
 // ensureSpace ensures there's enough space for a new plugin by evicting if necessary
@@ -271,9 +363,13 @@ func (c *CacheService) ensureSpace(requiredBytes int64) error {
 		// Remove from LRU
 		c.lru.Remove(oldest.Key())
 
+		// Record eviction metric
+		metrics.RecordEviction("storage_limit")
+
 		// Recalculate current size
 		currentSize -= oldest.FileSize
 	}
 
+	c.updateStorageMetrics()
 	return nil
 }

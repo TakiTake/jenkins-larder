@@ -4,7 +4,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/yourorg/jenkins-larder/src/metrics"
 	"github.com/yourorg/jenkins-larder/src/upstream"
 )
 
@@ -39,6 +41,7 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Get plugin from cache (or download if needed)
+	start := time.Now()
 	plugin, file, err := h.cache.GetPlugin(r.Context(), name, version, extension)
 	if err != nil {
 		slog.Error("Failed to get plugin", "plugin", name, "version", version, "error", err)
@@ -46,6 +49,14 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	duration := time.Since(start).Seconds()
+
+	// Determine source for duration metric
+	source := "upstream"
+	if duration < 0.1 {
+		source = "cache"
+	}
+	metrics.DownloadDuration.WithLabelValues(source).Observe(duration)
 
 	// Set response headers
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -65,23 +76,3 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-// serveCachedPlugin serves a plugin from local cache
-// TODO (T026): Implement serving from cache
-func (h *DownloadHandler) serveCachedPlugin(w http.ResponseWriter, r *http.Request, name, version, extension string) {
-	// TODO: Get plugin from storage
-	// TODO: Update access time
-	// TODO: Set Content-Type header
-	// TODO: Set Content-Length header
-	// TODO: Stream file to response
-}
-
-// downloadAndCachePlugin downloads from upstream and caches
-// TODO (T035): Implement download and caching
-func (h *DownloadHandler) downloadAndCachePlugin(w http.ResponseWriter, r *http.Request, name, version, extension string) error {
-	// TODO: Download from upstream
-	// TODO: Validate checksum
-	// TODO: Save to storage
-	// TODO: Update metadata
-	// TODO: Stream to response while caching
-	return nil
-}

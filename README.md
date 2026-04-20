@@ -102,6 +102,14 @@ GET  /admin/health              # Health check
 GET /metrics                    # Prometheus metrics
 ```
 
+Key metrics:
+- `jenkins_larder_cache_hits_total` / `jenkins_larder_cache_misses_total` — Hit rate
+- `jenkins_larder_storage_usage_bytes` / `jenkins_larder_storage_limit_bytes` — Storage utilization
+- `jenkins_larder_download_duration_seconds` — Latency histogram by source (cache/upstream)
+- `jenkins_larder_bandwidth_saved_bytes_total` — Bandwidth saved by cache hits
+- `jenkins_larder_evictions_total` — Eviction count by reason
+- `jenkins_larder_cached_plugins_total` — Current number of cached plugins
+
 ## Development
 
 ### Project Structure
@@ -124,14 +132,12 @@ jenkins-larder/
 ### Testing
 
 ```bash
-# Unit tests
-go test ./...
-
-# Integration tests
-go test -tags=integration ./tests/integration/
-
-# Contract tests
-go test ./tests/contract/
+make test              # All tests
+make test-unit         # Unit tests only
+make test-integration  # Integration tests (requires -tags=integration)
+make test-contract     # Contract tests
+make lint              # golangci-lint
+make fmt               # go fmt
 ```
 
 ## Implementation Tasks

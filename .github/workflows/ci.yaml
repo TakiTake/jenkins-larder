@@ -1,5 +1,3 @@
-# TODO (T074): Create CI/CD pipeline for automated testing
-
 name: CI
 
 on:
@@ -12,10 +10,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: '1.21'
 
@@ -25,14 +23,14 @@ jobs:
     - name: Run unit tests
       run: make test-unit
 
-    - name: Run integration tests
-      run: make test-integration
-
     - name: Run contract tests
       run: make test-contract
 
+    - name: Run integration tests
+      run: make test-integration
+
     - name: Run linter
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v6
       with:
         version: latest
 
@@ -40,10 +38,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: '1.21'
 
@@ -51,10 +49,12 @@ jobs:
       run: make build
 
     - name: Build Docker image
-      run: docker build -t jenkins-mirror:${{ github.sha }} .
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: docker build -t "jenkins-larder:${IMAGE_TAG}" .
 
     - name: Upload binary artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: jenkins-mirror
-        path: bin/jenkins-mirror
+        name: larder
+        path: bin/larder
