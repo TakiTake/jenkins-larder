@@ -1,6 +1,6 @@
 # Jenkins Larder - Makefile for common development tasks
 
-.PHONY: build test test-unit test-integration test-contract clean run docker-build docker-run
+.PHONY: build test test-unit test-integration test-contract clean run docker-build docker-run setup lint fmt
 
 # Build binary
 build:
@@ -46,6 +46,10 @@ docker-compose-up:
 
 docker-compose-down:
 	docker-compose down
+
+# Set up git hooks and dev tools
+setup:
+	git config core.hooksPath .githooks
 
 # Linting
 lint:
