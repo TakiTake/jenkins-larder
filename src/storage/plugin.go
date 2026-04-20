@@ -33,6 +33,6 @@ func (p *CachedPlugin) IsStale(ttlHours int) bool {
 	if ttlHours == 0 {
 		return false // No TTL, never stale
 	}
-	// TODO: Check if age exceeds TTL
-	return false
+	age := time.Since(p.DownloadTimestamp)
+	return age > time.Duration(ttlHours)*time.Hour
 }

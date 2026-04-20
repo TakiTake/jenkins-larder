@@ -96,6 +96,13 @@ func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension s
 	})
 
 	if err != nil {
+		// Try to serve stale cached file from disk if upstream failed
+		plugin, file, staleErr := c.serveStaleFromDisk(name, version, extension)
+		if staleErr == nil {
+			slog.Warn("Serving stale cached plugin due to upstream failure",
+				"plugin", name, "version", version, "upstream_error", err)
+			return plugin, file, nil
+		}
 		return nil, nil, err
 	}
 
@@ -105,6 +112,38 @@ func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension s
 	file, err := os.Open(plugin.FilePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open downloaded plugin: %w", err)
+	}
+
+	return plugin, file, nil
+}
+
+// serveStaleFromDisk attempts to serve a previously cached plugin file from disk
+// even if it's no longer in the LRU index (e.g., after restart or eviction from index).
+func (c *CacheService) serveStaleFromDisk(name, version, extension string) (*storage.CachedPlugin, io.ReadCloser, error) {
+	filePath := c.storage.PluginPath(name, version, extension)
+	if _, err := os.Stat(filePath); err != nil {
+		return nil, nil, fmt.Errorf("no stale cache available: %w", err)
+	}
+
+	// Try to load metadata
+	plugin, err := storage.LoadMetadata(name, version, c.config.Storage.Path)
+	if err != nil {
+		// Reconstruct minimal metadata from the file on disk
+		checksum, _ := storage.CalculateSHA256(filePath)
+		info, _ := os.Stat(filePath)
+		plugin = &storage.CachedPlugin{
+			Name:           name,
+			Version:        version,
+			Extension:      extension,
+			FilePath:       filePath,
+			FileSize:       info.Size(),
+			ChecksumSHA256: checksum,
+		}
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open stale cached file: %w", err)
 	}
 
 	return plugin, file, nil

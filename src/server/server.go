@@ -33,6 +33,15 @@ func New(cfg *config.Config) (*Server, error) {
 	}, nil
 }
 
+// PluginHandler returns the HTTP handler for plugin download requests.
+// Useful for testing with httptest.
+func (s *Server) PluginHandler() http.Handler {
+	mux := http.NewServeMux()
+	downloadHandler := NewDownloadHandler(s.cache)
+	mux.Handle("/download/plugins/", downloadHandler)
+	return mux
+}
+
 // Start starts all HTTP servers (plugin, admin, metrics)
 func (s *Server) Start() error {
 	// Set up plugin download server
