@@ -49,4 +49,4 @@ Tests live in `tests/` (not alongside source files):
 
 ## Tooling
 
-Go version managed via `mise.toml`. The `go.mod` specifies Go 1.21 as minimum.
+Go and golangci-lint are managed via `mise.toml`. Run `make setup` after cloning to configure git hooks (pre-commit runs lint).
