@@ -24,7 +24,9 @@ func TestAdminInvalidateCacheContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.ReadAll(resp.Body)
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("failed to prime cache: %d", resp.StatusCode)

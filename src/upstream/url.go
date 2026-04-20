@@ -26,7 +26,7 @@ func ParsePluginURL(path string) (name, version, extension string, err error) {
 
 	// Split path into segments
 	parts := []string{}
-	for _, part := range []rune(path) {
+	for _, part := range path {
 		if part != '/' {
 			if len(parts) == 0 {
 				parts = append(parts, string(part))

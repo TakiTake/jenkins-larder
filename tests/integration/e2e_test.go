@@ -23,7 +23,9 @@ func TestEndToEnd(t *testing.T) {
 		for i := range data {
 			data[i] = byte(i % 256)
 		}
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			return
+		}
 	})
 
 	upstreamServer := httptest.NewServer(upstream)
@@ -65,7 +67,9 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		var health map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&health)
+		if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+			t.Fatalf("failed to decode health response: %v", err)
+		}
 		if health["status"] != "healthy" {
 			t.Errorf("health status = %v, want healthy", health["status"])
 		}
@@ -77,8 +81,11 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("failed to read body: %v", err)
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("download: status %d", resp.StatusCode)
@@ -97,8 +104,11 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("failed to read body: %v", err)
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("cache hit: status %d", resp.StatusCode)
@@ -117,7 +127,9 @@ func TestEndToEnd(t *testing.T) {
 		defer resp.Body.Close()
 
 		var stats map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&stats)
+		if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+			t.Fatalf("failed to decode stats response: %v", err)
+		}
 
 		if stats["total_plugins"].(float64) < 1 {
 			t.Errorf("total_plugins = %v, want >= 1", stats["total_plugins"])
@@ -133,8 +145,11 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("failed to read metrics body: %v", err)
+		}
 		content := string(body)
 
 		expected := []string{
@@ -174,8 +189,11 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("failed to read body: %v", err)
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("re-download: status %d", resp.StatusCode)

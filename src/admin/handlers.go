@@ -70,11 +70,13 @@ func (h *AdminHandler) InvalidateCacheHandler(w http.ResponseWriter, r *http.Req
 	slog.Info("Cache invalidated", "plugin", req.Name, "version", req.Version, "remote_addr", r.RemoteAddr)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status":  "invalidated",
 		"name":    req.Name,
 		"version": req.Version,
-	})
+	}); err != nil {
+		slog.Error("Failed to write invalidation response", "error", err)
+	}
 }
 
 // CacheStatsHandler returns cache statistics
@@ -93,7 +95,9 @@ func (h *AdminHandler) CacheStatsHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		slog.Error("Failed to write stats response", "error", err)
+	}
 }
 
 // HealthCheckHandler returns health status
@@ -124,5 +128,7 @@ func (h *AdminHandler) HealthCheckHandler(w http.ResponseWriter, r *http.Request
 	if status != "healthy" {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
-	json.NewEncoder(w).Encode(health)
+	if err := json.NewEncoder(w).Encode(health); err != nil {
+		slog.Error("Failed to write health response", "error", err)
+	}
 }

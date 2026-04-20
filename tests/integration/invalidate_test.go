@@ -17,7 +17,9 @@ import (
 
 func TestManualCacheInvalidation(t *testing.T) {
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("plugin-data-for-invalidation-test"))
+		if _, err := w.Write([]byte("plugin-data-for-invalidation-test")); err != nil {
+			return
+		}
 	})
 
 	upstreamServer := httptest.NewServer(upstream)
@@ -47,7 +49,9 @@ func TestManualCacheInvalidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.ReadAll(resp.Body)
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("failed to cache plugin: %d", resp.StatusCode)
@@ -101,7 +105,9 @@ func TestManualCacheInvalidation(t *testing.T) {
 
 func TestTTLPolicyRefresh(t *testing.T) {
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ttl-plugin-data"))
+		if _, err := w.Write([]byte("ttl-plugin-data")); err != nil {
+			return
+		}
 	})
 
 	upstreamServer := httptest.NewServer(upstream)
@@ -132,7 +138,9 @@ func TestTTLPolicyRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.ReadAll(resp.Body)
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 	resp.Body.Close()
 
 	// Check stats - plugin should be marked as stale when TTL=0

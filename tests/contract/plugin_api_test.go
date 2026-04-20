@@ -23,7 +23,9 @@ func newTestServer(t *testing.T, opts ...func(*config.Config)) (*server.Server, 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve a fake plugin file
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write([]byte("fake-plugin-content-" + r.URL.Path))
+		if _, err := w.Write([]byte("fake-plugin-content-" + r.URL.Path)); err != nil {
+			return
+		}
 	}))
 	t.Cleanup(upstream.Close)
 
@@ -178,8 +180,11 @@ func TestPluginDownloadCacheHitContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body1, _ := io.ReadAll(resp1.Body)
+	body1, err := io.ReadAll(resp1.Body)
 	resp1.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 
 	// Verify file cached on disk
 	cachedFile := filepath.Join(cacheDir, "plugins", "git", "4.11.0", "git.hpi")
@@ -192,8 +197,11 @@ func TestPluginDownloadCacheHitContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body2, _ := io.ReadAll(resp2.Body)
+	body2, err := io.ReadAll(resp2.Body)
 	resp2.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("cache hit status = %d, want 200", resp2.StatusCode)
@@ -221,7 +229,9 @@ func TestPluginDownloadCacheHitPerformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.ReadAll(resp.Body)
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 	resp.Body.Close()
 
 	// Measure cache hit latency
@@ -230,7 +240,9 @@ func TestPluginDownloadCacheHitPerformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.ReadAll(resp.Body)
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 	resp.Body.Close()
 	duration := time.Since(start)
 

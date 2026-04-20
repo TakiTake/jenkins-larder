@@ -206,7 +206,9 @@ func TestEvictUntilSpace(t *testing.T) {
 			FileSize:       40,
 			LastAccessTime: time.Now().Add(time.Duration(i) * time.Hour),
 		}
-		storage.SaveMetadata(plugin, dir)
+		if err := storage.SaveMetadata(plugin, dir); err != nil {
+			t.Fatalf("failed to save metadata for %s: %v", plugin.Name, err)
+		}
 		tracker.Add(plugin)
 	}
 

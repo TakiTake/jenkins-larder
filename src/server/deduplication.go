@@ -2,17 +2,13 @@ package server
 
 import (
 	"context"
-	"sync"
 
 	"golang.org/x/sync/singleflight"
 )
 
-// TODO (T036): Implement concurrent request deduplication using singleflight
-
 // DeduplicationManager handles concurrent request deduplication
 type DeduplicationManager struct {
 	group singleflight.Group
-	mu    sync.Mutex
 }
 
 // NewDeduplicationManager creates a new deduplication manager

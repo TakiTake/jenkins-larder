@@ -51,7 +51,9 @@ func TestPluginDownloadCacheMiss(t *testing.T) {
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&upstreamHits, 1)
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write([]byte("plugin-binary-data"))
+		if _, err := w.Write([]byte("plugin-binary-data")); err != nil {
+			return
+		}
 	})
 
 	ts, cacheDir := setupTestEnv(t, upstream, 0)
@@ -61,8 +63,11 @@ func TestPluginDownloadCacheMiss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
 
 	// Verify downloaded from upstream
 	if atomic.LoadInt32(&upstreamHits) != 1 {
@@ -94,7 +99,9 @@ func TestPluginDownloadCacheHit(t *testing.T) {
 	var upstreamHits int32
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&upstreamHits, 1)
-		w.Write([]byte("plugin-data"))
+		if _, err := w.Write([]byte("plugin-data")); err != nil {
+			return
+		}
 	})
 
 	ts, _ := setupTestEnv(t, upstream, 0)
@@ -135,7 +142,9 @@ func TestPluginDownloadWithEviction(t *testing.T) {
 		for i := range data {
 			data[i] = byte(i % 256)
 		}
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			return
+		}
 	})
 
 	// Storage limit allows only ~2 plugins (limit=120, each plugin=50 bytes)
@@ -149,7 +158,9 @@ func TestPluginDownloadWithEviction(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		io.ReadAll(resp.Body)
+		if _, err := io.ReadAll(resp.Body); err != nil {
+			t.Fatalf("failed to read body for %s: %v", name, err)
+		}
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("download %s failed: status %d", name, resp.StatusCode)
@@ -178,7 +189,9 @@ func TestUpstreamFailureServesStale(t *testing.T) {
 			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		w.Write([]byte("original-plugin-data"))
+		if _, err := w.Write([]byte("original-plugin-data")); err != nil {
+			return
+		}
 	})
 
 	ts, _ := setupTestEnv(t, upstream, 0)
@@ -189,8 +202,11 @@ func TestUpstreamFailureServesStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body1, _ := io.ReadAll(resp.Body)
+	body1, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("initial download failed: %d", resp.StatusCode)
 	}
@@ -198,19 +214,16 @@ func TestUpstreamFailureServesStale(t *testing.T) {
 	// Simulate upstream failure
 	upstreamAvailable.Store(false)
 
-	// Evict from LRU by creating a new server instance pointing to same cache dir
-	// Instead, just request the same URL - it should be in cache already
-	// But let's test when LRU doesn't have it by requesting from same server
-	// The plugin is still in LRU, so it will serve from cache normally.
-	// To test stale fallback, we need the LRU to not have it.
-
 	// Request the same plugin - should still serve from LRU cache hit
 	resp2, err := http.Get(url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body2, _ := io.ReadAll(resp2.Body)
+	body2, err := io.ReadAll(resp2.Body)
 	resp2.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read body: %v", err)
+	}
 
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("cache hit during upstream failure: status = %d, want 200", resp2.StatusCode)
@@ -247,7 +260,9 @@ func TestConcurrentDownloadDeduplication(t *testing.T) {
 		atomic.AddInt32(&upstreamHits, 1)
 		// Simulate slow download to allow concurrent requests to arrive
 		time.Sleep(100 * time.Millisecond)
-		w.Write([]byte("concurrent-plugin-data"))
+		if _, err := w.Write([]byte("concurrent-plugin-data")); err != nil {
+			return
+		}
 	})
 
 	ts, _ := setupTestEnv(t, upstream, 0)
@@ -267,7 +282,11 @@ func TestConcurrentDownloadDeduplication(t *testing.T) {
 				results[idx] = -1
 				return
 			}
-			io.ReadAll(resp.Body)
+			if _, err := io.ReadAll(resp.Body); err != nil {
+				results[idx] = -1
+				resp.Body.Close()
+				return
+			}
 			resp.Body.Close()
 			results[idx] = resp.StatusCode
 		}(i)

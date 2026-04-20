@@ -92,7 +92,9 @@ func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension s
 			c.lru.Add(plugin)
 
 			// Save updated metadata
-			storage.SaveMetadata(plugin, c.config.Storage.Path)
+			if err := storage.SaveMetadata(plugin, c.config.Storage.Path); err != nil {
+				slog.Warn("Failed to save updated metadata", "plugin", name, "version", version, "error", err)
+			}
 
 			// Open file for reading
 			file, err := os.Open(plugin.FilePath)
