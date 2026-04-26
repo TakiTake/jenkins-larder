@@ -58,5 +58,5 @@ spec:
         configMap:
           name: jenkins-mirror-config
       - name: cache
-        persistentVolumeClaim:
-          claimName: jenkins-mirror-cache
+        emptyDir:
+          sizeLimit: 15Gi
