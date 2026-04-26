@@ -153,8 +153,14 @@ func (c *CacheService) serveStaleFromDisk(name, version, extension string) (*sto
 	plugin, err := storage.LoadMetadata(name, version, c.config.Storage.Path)
 	if err != nil {
 		// Reconstruct minimal metadata from the file on disk
-		checksum, _ := storage.CalculateSHA256(filePath)
-		info, _ := os.Stat(filePath)
+		checksum, checksumErr := storage.CalculateSHA256(filePath)
+		if checksumErr != nil {
+			slog.Warn("Failed to calculate checksum for stale cache", "path", filePath, "error", checksumErr)
+		}
+		info, statErr := os.Stat(filePath)
+		if statErr != nil {
+			return nil, nil, fmt.Errorf("failed to stat stale cached file: %w", statErr)
+		}
 		plugin = &storage.CachedPlugin{
 			Name:           name,
 			Version:        version,

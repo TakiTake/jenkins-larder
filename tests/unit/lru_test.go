@@ -67,7 +67,10 @@ func TestLRUTrackerGet(t *testing.T) {
 
 func TestLRUTrackerGetOldest(t *testing.T) {
 	t.Run("empty tracker", func(t *testing.T) {
-		tracker, _ := storage.NewLRUTracker(100)
+		tracker, err := storage.NewLRUTracker(100)
+		if err != nil {
+			t.Fatal(err)
+		}
 		_, found := tracker.GetOldest()
 		if found {
 			t.Error("expected not found on empty tracker")
@@ -75,7 +78,10 @@ func TestLRUTrackerGetOldest(t *testing.T) {
 	})
 
 	t.Run("returns oldest by access time", func(t *testing.T) {
-		tracker, _ := storage.NewLRUTracker(100)
+		tracker, err := storage.NewLRUTracker(100)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		old := &storage.CachedPlugin{
 			Name: "old-plugin", Version: "1.0",
@@ -105,7 +111,10 @@ func TestLRUTrackerGetOldest(t *testing.T) {
 }
 
 func TestLRUTrackerRemove(t *testing.T) {
-	tracker, _ := storage.NewLRUTracker(100)
+	tracker, err := storage.NewLRUTracker(100)
+	if err != nil {
+		t.Fatal(err)
+	}
 	plugin := &storage.CachedPlugin{Name: "git", Version: "4.11.0", LastAccessTime: time.Now()}
 	tracker.Add(plugin)
 
@@ -127,7 +136,10 @@ func TestEvictRemovesFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tracker, _ := storage.NewLRUTracker(100)
+	tracker, err := storage.NewLRUTracker(100)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Create a plugin file and metadata
 	pluginDir := filepath.Join(dir, "plugins", "git", "4.11.0")
@@ -184,7 +196,10 @@ func TestEvictUntilSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tracker, _ := storage.NewLRUTracker(100)
+	tracker, err := storage.NewLRUTracker(100)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Add two 40-byte plugins
 	for i, name := range []string{"plugin-a", "plugin-b"} {
