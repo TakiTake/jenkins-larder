@@ -1,3 +1,5 @@
+//go:build integration
+
 package integration
 
 import (
@@ -108,15 +110,27 @@ func TestPluginDownloadCacheHit(t *testing.T) {
 	url := ts.URL + "/download/plugins/hit-test/1.0.0/hit-test.hpi"
 
 	// First request (cache miss)
-	resp1, _ := http.Get(url)
-	body1, _ := io.ReadAll(resp1.Body)
+	resp1, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body1, err := io.ReadAll(resp1.Body)
 	resp1.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
 	checksum1 := resp1.Header.Get("X-Checksum-SHA256")
 
 	// Second request (cache hit)
-	resp2, _ := http.Get(url)
-	body2, _ := io.ReadAll(resp2.Body)
+	resp2, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body2, err := io.ReadAll(resp2.Body)
 	resp2.Body.Close()
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
 	checksum2 := resp2.Header.Get("X-Checksum-SHA256")
 
 	// Upstream should only be hit once

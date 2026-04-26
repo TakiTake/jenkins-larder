@@ -1,3 +1,5 @@
+//go:build integration
+
 package integration
 
 import (
@@ -90,7 +92,10 @@ func TestManualCacheInvalidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reBody, _ := io.ReadAll(resp.Body)
+	reBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
 	resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
