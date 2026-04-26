@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/yourorg/jenkins-larder/src/admin"
@@ -18,23 +16,27 @@ import (
 
 // CacheService coordinates storage, LRU tracking, and upstream downloads
 type CacheService struct {
-	storage      *storage.Storage
-	lru          *storage.LRUTracker
-	upstream     *upstream.Client
-	dedup        *DeduplicationManager
-	config       *config.Config
+	store    PluginStore
+	lru      LRUCache
+	upstream UpstreamClient
+	dedup    Deduplicator
+	config   *config.Config
 }
 
-// NewCacheService creates a new cache service
+const maxLRUItems = 10000
+
+func pluginKey(name, version string) string {
+	return name + ":" + version
+}
+
+// NewCacheService creates a new cache service with concrete dependencies
 func NewCacheService(cfg *config.Config) (*CacheService, error) {
-	// Initialize storage
 	stor, err := storage.NewStorage(cfg.Storage.Path, cfg.Storage.LimitBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	// Initialize LRU tracker (use 10000 as max items)
-	lruTracker, err := storage.NewLRUTracker(10000)
+	lruTracker, err := storage.NewLRUTracker(maxLRUItems)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize LRU tracker: %w", err)
 	}
@@ -48,31 +50,32 @@ func NewCacheService(cfg *config.Config) (*CacheService, error) {
 		slog.Info("Loaded cached plugins into LRU", "count", len(plugins))
 	}
 
-	// Initialize upstream client
 	upstreamClient := upstream.NewClient(cfg.Upstream.URL, cfg.Upstream.TimeoutSeconds)
-
-	// Initialize deduplication manager
 	dedupManager := NewDeduplicationManager()
 
+	return NewCacheServiceWithDeps(cfg, stor, lruTracker, upstreamClient, dedupManager), nil
+}
+
+// NewCacheServiceWithDeps creates a CacheService with injected dependencies for testing
+func NewCacheServiceWithDeps(cfg *config.Config, store PluginStore, lru LRUCache, up UpstreamClient, dedup Deduplicator) *CacheService {
 	cs := &CacheService{
-		storage:  stor,
-		lru:      lruTracker,
-		upstream: upstreamClient,
-		dedup:    dedupManager,
+		store:    store,
+		lru:      lru,
+		upstream: up,
+		dedup:    dedup,
 		config:   cfg,
 	}
 
-	// Initialize storage metrics
 	metrics.StorageLimitBytes.Set(float64(cfg.Storage.LimitBytes))
-	metrics.UpdateCachedPlugins(lruTracker.Len())
+	metrics.UpdateCachedPlugins(lru.Len())
 	cs.updateStorageMetrics()
 
-	return cs, nil
+	return cs
 }
 
 // updateStorageMetrics refreshes the storage usage gauge
 func (c *CacheService) updateStorageMetrics() {
-	currentSize, err := c.storage.GetCurrentSize()
+	currentSize, err := c.store.GetCurrentSize()
 	if err == nil {
 		metrics.UpdateStorageMetrics(currentSize, c.config.Storage.LimitBytes)
 		metrics.UpdateCachedPlugins(c.lru.Len())
@@ -81,23 +84,20 @@ func (c *CacheService) updateStorageMetrics() {
 
 // GetPlugin retrieves a plugin, downloading from upstream if necessary
 func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension string) (*storage.CachedPlugin, io.ReadCloser, error) {
-	key := fmt.Sprintf("%s:%s", name, version)
+	key := pluginKey(name, version)
 
 	// Check LRU cache first
 	if plugin, found := c.lru.Get(key); found {
 		// Verify file still exists on disk
-		if _, err := os.Stat(plugin.FilePath); err == nil {
-			// Update access time
+		if _, err := c.store.PluginExists(plugin.FilePath); err == nil {
 			plugin.UpdateAccessTime()
 			c.lru.Add(plugin)
 
-			// Save updated metadata
-			if err := storage.SaveMetadata(plugin, c.config.Storage.Path); err != nil {
+			if err := c.store.SavePluginMetadata(plugin); err != nil {
 				slog.Warn("Failed to save updated metadata", "plugin", name, "version", version, "error", err)
 			}
 
-			// Open file for reading
-			file, err := os.Open(plugin.FilePath)
+			file, err := c.store.OpenPlugin(plugin.FilePath)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to open cached plugin: %w", err)
 			}
@@ -132,8 +132,7 @@ func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension s
 
 	plugin := result.(*storage.CachedPlugin)
 
-	// Open file for reading
-	file, err := os.Open(plugin.FilePath)
+	file, err := c.store.OpenPlugin(plugin.FilePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open downloaded plugin: %w", err)
 	}
@@ -144,22 +143,18 @@ func (c *CacheService) GetPlugin(ctx context.Context, name, version, extension s
 // serveStaleFromDisk attempts to serve a previously cached plugin file from disk
 // even if it's no longer in the LRU index (e.g., after restart or eviction from index).
 func (c *CacheService) serveStaleFromDisk(name, version, extension string) (*storage.CachedPlugin, io.ReadCloser, error) {
-	filePath := c.storage.PluginPath(name, version, extension)
-	if _, err := os.Stat(filePath); err != nil {
+	filePath := c.store.PluginPath(name, version, extension)
+	info, err := c.store.PluginExists(filePath)
+	if err != nil {
 		return nil, nil, fmt.Errorf("no stale cache available: %w", err)
 	}
 
-	// Try to load metadata
-	plugin, err := storage.LoadMetadata(name, version, c.config.Storage.Path)
+	plugin, err := c.store.LoadPluginMetadata(name, version)
 	if err != nil {
 		// Reconstruct minimal metadata from the file on disk
 		checksum, checksumErr := storage.CalculateSHA256(filePath)
 		if checksumErr != nil {
 			slog.Warn("Failed to calculate checksum for stale cache", "path", filePath, "error", checksumErr)
-		}
-		info, statErr := os.Stat(filePath)
-		if statErr != nil {
-			return nil, nil, fmt.Errorf("failed to stat stale cached file: %w", statErr)
 		}
 		plugin = &storage.CachedPlugin{
 			Name:           name,
@@ -171,7 +166,7 @@ func (c *CacheService) serveStaleFromDisk(name, version, extension string) (*sto
 		}
 	}
 
-	file, err := os.Open(filePath)
+	file, err := c.store.OpenPlugin(filePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open stale cached file: %w", err)
 	}
@@ -183,78 +178,46 @@ func (c *CacheService) serveStaleFromDisk(name, version, extension string) (*sto
 func (c *CacheService) downloadAndCache(ctx context.Context, name, version, extension string) (*storage.CachedPlugin, error) {
 	slog.Info("Cache MISS - downloading from upstream", "plugin", name, "version", version)
 
-	// Download from upstream
 	body, err := c.upstream.DownloadPlugin(ctx, name, version, extension)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download from upstream: %w", err)
 	}
 	defer body.Close()
 
-	// Prepare plugin metadata
+	// Ensure we have space (evict if needed) before writing
+	// Use a size estimate of 0 since we don't know the size yet;
+	// the real check happens after writing when we know the actual size
+	filePath, written, checksum, err := c.store.WritePlugin(body, name, version, extension)
+	if err != nil {
+		return nil, err
+	}
+
 	plugin := &storage.CachedPlugin{
 		Name:              name,
 		Version:           version,
 		Extension:         extension,
-		DownloadTimestamp: time.Now(),
+		FilePath:          filePath,
+		FileSize:          written,
+		ChecksumSHA256:    checksum,
+		DownloadTimestamp:  time.Now(),
 		LastAccessTime:    time.Now(),
 		UpstreamURL:       c.upstream.PluginURL(name, version, extension),
 	}
 
-	// Calculate file path
-	plugin.FilePath = c.storage.PluginPath(name, version, extension)
-
-	// Create directory
-	if err := os.MkdirAll(filepath.Dir(plugin.FilePath), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create plugin directory: %w", err)
-	}
-
-	// Write to temporary file first
-	tmpPath := plugin.FilePath + ".tmp"
-	tmpFile, err := os.Create(tmpPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp file: %w", err)
-	}
-
-	// Copy data and calculate size
-	written, err := io.Copy(tmpFile, body)
-	if err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-		return nil, fmt.Errorf("failed to write plugin: %w", err)
-	}
-	tmpFile.Close()
-
-	plugin.FileSize = written
-
-	// Calculate checksum
-	checksum, err := storage.CalculateSHA256(tmpPath)
-	if err != nil {
-		os.Remove(tmpPath)
-		return nil, fmt.Errorf("failed to calculate checksum: %w", err)
-	}
-	plugin.ChecksumSHA256 = checksum
-
 	// Ensure we have space (evict if needed)
 	if err := c.ensureSpace(plugin.FileSize); err != nil {
-		os.Remove(tmpPath)
+		if removeErr := c.store.RemovePlugin(filePath); removeErr != nil {
+			slog.Warn("Failed to clean up plugin after space error", "path", filePath, "error", removeErr)
+		}
 		return nil, fmt.Errorf("failed to ensure storage space: %w", err)
 	}
 
-	// Move temp file to final location
-	if err := os.Rename(tmpPath, plugin.FilePath); err != nil {
-		os.Remove(tmpPath)
-		return nil, fmt.Errorf("failed to move plugin to final location: %w", err)
-	}
-
-	// Save metadata
-	if err := storage.SaveMetadata(plugin, c.config.Storage.Path); err != nil {
+	if err := c.store.SavePluginMetadata(plugin); err != nil {
 		slog.Warn("Failed to save metadata", "error", err)
 	}
 
-	// Add to LRU tracker
 	c.lru.Add(plugin)
 
-	// Record metrics
 	metrics.RecordDownload(name, version, "upstream")
 	c.updateStorageMetrics()
 
@@ -270,26 +233,20 @@ func (c *CacheService) downloadAndCache(ctx context.Context, name, version, exte
 
 // InvalidatePlugin removes a specific plugin from the cache
 func (c *CacheService) InvalidatePlugin(name, version string) error {
-	key := fmt.Sprintf("%s:%s", name, version)
+	key := pluginKey(name, version)
 
-	// Check if plugin exists in LRU
 	plugin, found := c.lru.Get(key)
 	if !found {
 		return fmt.Errorf("plugin not found in cache: %s:%s", name, version)
 	}
 
-	// Delete plugin file
-	if err := os.Remove(plugin.FilePath); err != nil && !os.IsNotExist(err) {
+	if err := c.store.RemovePlugin(plugin.FilePath); err != nil {
 		return fmt.Errorf("failed to delete plugin file: %w", err)
 	}
 
-	// Delete metadata
-	metadataPath := filepath.Join(c.config.Storage.Path, "metadata", plugin.Name, plugin.Version+".json")
-	if err := os.Remove(metadataPath); err != nil && !os.IsNotExist(err) {
+	if err := c.store.RemoveMetadata(plugin.Name, plugin.Version); err != nil {
 		slog.Warn("Failed to delete metadata during invalidation", "error", err)
 	}
-
-	// Remove from LRU
 	c.lru.Remove(key)
 
 	slog.Info("Plugin invalidated", "plugin", name, "version", version)
@@ -298,7 +255,7 @@ func (c *CacheService) InvalidatePlugin(name, version string) error {
 
 // GetStats returns current cache statistics
 func (c *CacheService) GetStats() (*admin.CacheStats, error) {
-	currentSize, err := c.storage.GetCurrentSize()
+	currentSize, err := c.store.GetCurrentSize()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get storage size: %w", err)
 	}
@@ -323,12 +280,8 @@ func (c *CacheService) IsHealthy() map[string]string {
 		"upstream": "ok",
 	}
 
-	// Check storage is writable
-	testPath := filepath.Join(c.config.Storage.Path, ".health-check")
-	if err := os.WriteFile(testPath, []byte("ok"), 0644); err != nil {
+	if err := c.store.CheckHealth(); err != nil {
 		health["storage"] = "error: " + err.Error()
-	} else {
-		os.Remove(testPath)
 	}
 
 	return health
@@ -336,46 +289,38 @@ func (c *CacheService) IsHealthy() map[string]string {
 
 // ensureSpace ensures there's enough space for a new plugin by evicting if necessary
 func (c *CacheService) ensureSpace(requiredBytes int64) error {
-	// Get current storage size
-	currentSize, err := c.storage.GetCurrentSize()
+	currentSize, err := c.store.GetCurrentSize()
 	if err != nil {
 		return fmt.Errorf("failed to get current storage size: %w", err)
 	}
 
-	// Check if we need to evict
 	for currentSize+requiredBytes > c.config.Storage.LimitBytes {
-		// Get oldest plugin
 		oldest, found := c.lru.GetOldest()
 		if !found {
 			return fmt.Errorf("storage full but no plugins to evict")
 		}
 
-		// Evict the plugin
 		slog.Info("Evicting plugin due to storage limit",
 			"plugin", oldest.Name,
 			"version", oldest.Version,
 			"size_bytes", oldest.FileSize,
 		)
 
-		// Delete file
-		if err := os.Remove(oldest.FilePath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("Failed to delete plugin file", "error", err)
+		if err := c.store.RemovePlugin(oldest.FilePath); err != nil {
+			return fmt.Errorf("failed to evict plugin file %s: %w", oldest.FilePath, err)
 		}
 
-		// Delete metadata
-		metadataPath := filepath.Join(c.config.Storage.Path, "metadata", oldest.Name, oldest.Version+".json")
-		if err := os.Remove(metadataPath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("Failed to delete metadata", "error", err)
+		if err := c.store.RemoveMetadata(oldest.Name, oldest.Version); err != nil {
+			slog.Warn("Failed to delete metadata during eviction", "error", err)
 		}
-
-		// Remove from LRU
 		c.lru.Remove(oldest.Key())
-
-		// Record eviction metric
 		metrics.RecordEviction("storage_limit")
 
-		// Recalculate current size
-		currentSize -= oldest.FileSize
+		// Re-read actual disk usage to keep accounting accurate
+		currentSize, err = c.store.GetCurrentSize()
+		if err != nil {
+			return fmt.Errorf("failed to recalculate storage size after eviction: %w", err)
+		}
 	}
 
 	c.updateStorageMetrics()
