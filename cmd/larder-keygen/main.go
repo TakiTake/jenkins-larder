@@ -10,12 +10,15 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"os"
+	"path/filepath"
 	"time"
 )
 
 func main() {
-	name := flag.String("name", "larder-signing-key", "Secret name")
-	namespace := flag.String("namespace", "larder", "Kubernetes namespace")
+	outdir := flag.String("out", ".", "Output directory for key and certificate files")
+	keyfile := flag.String("key", "tls.key", "Private key filename")
+	certfile := flag.String("cert", "tls.crt", "Certificate filename")
 	flag.Parse()
 
 	key, cert, err := generateKeyAndCert()
@@ -23,13 +26,23 @@ func main() {
 		log.Fatalf("failed to generate key and cert: %v", err)
 	}
 
-	keyPEM, certPEM, err := encodePEM(key, cert)
-	if err != nil {
-		log.Fatalf("failed to encode PEM: %v", err)
+	keyPath := filepath.Join(*outdir, *keyfile)
+	certPath := filepath.Join(*outdir, *certfile)
+
+	if err := writeKey(key, keyPath); err != nil {
+		log.Fatalf("failed to write key: %v", err)
+	}
+	if err := writeCert(cert, certPath); err != nil {
+		log.Fatalf("failed to write cert: %v", err)
 	}
 
-	manifest := generateSecret(*name, *namespace, keyPEM, certPEM)
-	fmt.Print(manifest)
+	fmt.Printf("RSA key pair generated successfully:\n")
+	fmt.Printf("  Private key: %s\n", keyPath)
+	fmt.Printf("  Certificate: %s\n", certPath)
+	fmt.Printf("\nCreate Kubernetes secret with:\n")
+	fmt.Printf("  kubectl create secret generic larder-signing-key -n larder \\\n")
+	fmt.Printf("    --from-file=tls.key=%s \\\n", keyPath)
+	fmt.Printf("    --from-file=tls.crt=%s\n", certPath)
 }
 
 func generateKeyAndCert() (*rsa.PrivateKey, *x509.Certificate, error) {
@@ -43,7 +56,7 @@ func generateKeyAndCert() (*rsa.PrivateKey, *x509.Certificate, error) {
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			CommonName: "larder-agent",
+			CommonName: "larder-signing",
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(10, 0, 0), // 10 years
@@ -65,66 +78,41 @@ func generateKeyAndCert() (*rsa.PrivateKey, *x509.Certificate, error) {
 	return key, cert, nil
 }
 
-func encodePEM(key *rsa.PrivateKey, cert *x509.Certificate) (string, string, error) {
-	// Encode private key to PEM
+func writeKey(key *rsa.PrivateKey, path string) error {
 	keyBytes := x509.MarshalPKCS1PrivateKey(key)
-	keyPEM := pem.EncodeToMemory(&pem.Block{
+	keyPEM := &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: keyBytes,
-	})
+	}
 
-	// Encode certificate to PEM
-	certPEM := pem.EncodeToMemory(&pem.Block{
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create key file: %w", err)
+	}
+	defer f.Close()
+
+	if err := pem.Encode(f, keyPEM); err != nil {
+		return fmt.Errorf("failed to encode key: %w", err)
+	}
+
+	return os.Chmod(path, 0600)
+}
+
+func writeCert(cert *x509.Certificate, path string) error {
+	certPEM := &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: cert.Raw,
-	})
-
-	return string(keyPEM), string(certPEM), nil
-}
-
-func generateSecret(name, namespace, keyPEM, certPEM string) string {
-	// Escape YAML special characters in the PEM content
-	escapedKeyPEM := escapeYAML(keyPEM)
-	escapedCertPEM := escapeYAML(certPEM)
-
-	manifest := fmt.Sprintf(`apiVersion: v1
-kind: Secret
-metadata:
-  name: %s
-  namespace: %s
-type: Opaque
-stringData:
-  tls.key: |
-%s
-  tls.crt: |
-%s
-`, name, namespace, escapedKeyPEM, escapedCertPEM)
-
-	return manifest
-}
-
-func escapeYAML(s string) string {
-	// Indent each line by 4 spaces for YAML literal block scalar
-	result := ""
-	for _, line := range splitLines(s) {
-		result += "    " + line + "\n"
 	}
-	return result
-}
 
-func splitLines(s string) []string {
-	var lines []string
-	var current string
-	for _, ch := range s {
-		if ch == '\n' {
-			lines = append(lines, current)
-			current = ""
-		} else {
-			current += string(ch)
-		}
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create cert file: %w", err)
 	}
-	if current != "" {
-		lines = append(lines, current)
+	defer f.Close()
+
+	if err := pem.Encode(f, certPEM); err != nil {
+		return fmt.Errorf("failed to encode cert: %w", err)
 	}
-	return lines
+
+	return os.Chmod(path, 0644)
 }
