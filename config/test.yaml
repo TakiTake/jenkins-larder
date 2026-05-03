@@ -16,3 +16,11 @@ admin:
 ttl:
   enabled: false
   default_hours: 0
+
+larder:
+  rsa:
+    key_path: /tmp/test-tls.key
+    cert_path: /tmp/test-tls.crt
+  update_center:
+    base_url: http://localhost:8080
+    ttl_seconds: 3600

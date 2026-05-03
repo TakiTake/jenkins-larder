@@ -3,8 +3,13 @@
 package integration
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -30,12 +35,19 @@ func setupTestEnv(t *testing.T, upstreamHandler http.Handler, storageLimitBytes 
 		storageLimitBytes = 100 * 1024 * 1024
 	}
 
+	// Create test RSA keys
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: storageLimitBytes, Path: cacheDir},
 		Upstream: config.UpstreamConfig{URL: upstream.URL, TimeoutSeconds: 10},
 		Server:   config.ServerConfig{Port: 0, MetricsPort: 0},
 		Admin:    config.AdminConfig{Port: 0},
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {
@@ -46,6 +58,45 @@ func setupTestEnv(t *testing.T, upstreamHandler http.Handler, storageLimitBytes 
 	t.Cleanup(ts.Close)
 
 	return ts, cacheDir
+}
+
+func createTestRSAKeys(t *testing.T) (keyPath, certPath string) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	keyPath = filepath.Join(tmpDir, "test.key")
+	certPath = filepath.Join(tmpDir, "test.crt")
+
+	// Generate RSA key pair
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate RSA key: %v", err)
+	}
+
+	// Create a self-signed certificate
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+	}
+
+	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	// Write private key
+	keyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	keyPEM := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes}
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(keyPEM), 0600); err != nil {
+		t.Fatalf("failed to write key file: %v", err)
+	}
+
+	// Write certificate
+	certPEM := &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}
+	if err := os.WriteFile(certPath, pem.EncodeToMemory(certPEM), 0644); err != nil {
+		t.Fatalf("failed to write cert file: %v", err)
+	}
+
+	return keyPath, certPath
 }
 
 func TestPluginDownloadCacheMiss(t *testing.T) {

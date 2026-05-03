@@ -27,6 +27,13 @@ admin:
 ttl:
   enabled: false
   default_hours: 0
+larder:
+  rsa:
+    key_path: /tmp/test-tls.key
+    cert_path: /tmp/test-tls.crt
+  update_center:
+    base_url: http://localhost:8080
+    ttl_seconds: 3600
 `
 		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 			t.Fatal(err)
@@ -109,82 +116,77 @@ func TestConfigValidate(t *testing.T) {
 	}{
 		{
 			name: "valid config",
-			cfg: config.Config{
-				Storage:  config.StorageConfig{LimitBytes: 1024, Path: "/tmp/cache"},
-				Upstream: config.UpstreamConfig{URL: "https://updates.jenkins.io", TimeoutSeconds: 60},
-				Server:   config.ServerConfig{Port: 8080, MetricsPort: 9090},
-				Admin:    config.AdminConfig{Port: 8081},
-			},
+			cfg: newValidConfig(),
 			wantErr: false,
 		},
 		{
 			name: "zero storage limit",
-			cfg: config.Config{
+			cfg: withLarderConfig(config.Config{
 				Storage:  config.StorageConfig{LimitBytes: 0, Path: "/tmp/cache"},
 				Upstream: config.UpstreamConfig{URL: "https://updates.jenkins.io", TimeoutSeconds: 60},
 				Server:   config.ServerConfig{Port: 8080, MetricsPort: 9090},
 				Admin:    config.AdminConfig{Port: 8081},
-			},
+			}),
 			wantErr: true,
 		},
 		{
 			name: "empty storage path",
-			cfg: config.Config{
+			cfg: withLarderConfig(config.Config{
 				Storage:  config.StorageConfig{LimitBytes: 1024, Path: ""},
 				Upstream: config.UpstreamConfig{URL: "https://updates.jenkins.io", TimeoutSeconds: 60},
 				Server:   config.ServerConfig{Port: 8080, MetricsPort: 9090},
 				Admin:    config.AdminConfig{Port: 8081},
-			},
+			}),
 			wantErr: true,
 		},
 		{
 			name: "empty upstream URL",
-			cfg: config.Config{
+			cfg: withLarderConfig(config.Config{
 				Storage:  config.StorageConfig{LimitBytes: 1024, Path: "/tmp/cache"},
 				Upstream: config.UpstreamConfig{URL: "", TimeoutSeconds: 60},
 				Server:   config.ServerConfig{Port: 8080, MetricsPort: 9090},
 				Admin:    config.AdminConfig{Port: 8081},
-			},
+			}),
 			wantErr: true,
 		},
 		{
 			name: "invalid upstream scheme",
-			cfg: config.Config{
+			cfg: withLarderConfig(config.Config{
 				Storage:  config.StorageConfig{LimitBytes: 1024, Path: "/tmp/cache"},
 				Upstream: config.UpstreamConfig{URL: "ftp://updates.jenkins.io", TimeoutSeconds: 60},
 				Server:   config.ServerConfig{Port: 8080, MetricsPort: 9090},
 				Admin:    config.AdminConfig{Port: 8081},
-			},
+			}),
 			wantErr: true,
 		},
 		{
 			name: "timeout too low",
-			cfg: config.Config{
+			cfg: withLarderConfig(config.Config{
 				Storage:  config.StorageConfig{LimitBytes: 1024, Path: "/tmp/cache"},
 				Upstream: config.UpstreamConfig{URL: "https://updates.jenkins.io", TimeoutSeconds: 5},
 				Server:   config.ServerConfig{Port: 8080, MetricsPort: 9090},
 				Admin:    config.AdminConfig{Port: 8081},
-			},
+			}),
 			wantErr: true,
 		},
 		{
 			name: "duplicate ports",
-			cfg: config.Config{
+			cfg: withLarderConfig(config.Config{
 				Storage:  config.StorageConfig{LimitBytes: 1024, Path: "/tmp/cache"},
 				Upstream: config.UpstreamConfig{URL: "https://updates.jenkins.io", TimeoutSeconds: 60},
 				Server:   config.ServerConfig{Port: 8080, MetricsPort: 8080},
 				Admin:    config.AdminConfig{Port: 8081},
-			},
+			}),
 			wantErr: true,
 		},
 		{
 			name: "port out of range",
-			cfg: config.Config{
+			cfg: withLarderConfig(config.Config{
 				Storage:  config.StorageConfig{LimitBytes: 1024, Path: "/tmp/cache"},
 				Upstream: config.UpstreamConfig{URL: "https://updates.jenkins.io", TimeoutSeconds: 60},
 				Server:   config.ServerConfig{Port: 70000, MetricsPort: 9090},
 				Admin:    config.AdminConfig{Port: 8081},
-			},
+			}),
 			wantErr: true,
 		},
 	}
@@ -197,4 +199,21 @@ func TestConfigValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newValidConfig() config.Config {
+	return withLarderConfig(config.Config{
+		Storage:  config.StorageConfig{LimitBytes: 1024, Path: "/tmp/cache"},
+		Upstream: config.UpstreamConfig{URL: "https://updates.jenkins.io", TimeoutSeconds: 60},
+		Server:   config.ServerConfig{Port: 8080, MetricsPort: 9090},
+		Admin:    config.AdminConfig{Port: 8081},
+	})
+}
+
+func withLarderConfig(cfg config.Config) config.Config {
+	cfg.Larder.RSA.KeyPath = "/tmp/test-tls.key"
+	cfg.Larder.RSA.CertPath = "/tmp/test-tls.crt"
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
+	return cfg
 }

@@ -34,9 +34,18 @@ func main() {
 	slog.Info("Starting Jenkins Larder",
 		"storage_limit_gb", cfg.Storage.LimitBytes/(1024*1024*1024),
 		"upstream_url", cfg.Upstream.URL,
+		"update_center_base_url", cfg.Larder.UpdateCenter.BaseURL,
 	)
 
-	// Create HTTP server with cache service
+	// Setup config watcher for hot reload
+	watcher, _, err := config.NewWatcher(configPath, cfg)
+	if err != nil {
+		log.Fatalf("Failed to create config watcher: %v", err)
+	}
+	go watcher.Start(context.Background())
+	defer watcher.Stop()
+
+	// Create unified Larder server
 	srv, err := server.New(cfg)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
@@ -52,7 +61,6 @@ func main() {
 
 	slog.Info("Server started successfully",
 		"plugin_port", cfg.Server.Port,
-		"admin_port", cfg.Admin.Port,
 		"metrics_port", cfg.Server.MetricsPort,
 	)
 

@@ -72,3 +72,33 @@ func ValidateUpstreamConfig(cfg *UpstreamConfig) error {
 
 	return nil
 }
+
+// ValidateLarderConfig validates Larder unified configuration
+func ValidateLarderConfig(cfg *LarderConfig) error {
+	if cfg.RSA.KeyPath == "" {
+		return errors.New("larder.rsa.key_path cannot be empty")
+	}
+
+	if cfg.RSA.CertPath == "" {
+		return errors.New("larder.rsa.cert_path cannot be empty")
+	}
+
+	if cfg.UpdateCenter.BaseURL == "" {
+		return errors.New("larder.update_center.base_url cannot be empty")
+	}
+
+	baseURL, err := url.Parse(cfg.UpdateCenter.BaseURL)
+	if err != nil {
+		return errors.New("invalid larder update_center base URL")
+	}
+
+	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
+		return errors.New("larder update_center base URL must use http or https scheme")
+	}
+
+	if cfg.UpdateCenter.TTLSeconds < 60 {
+		return errors.New("larder.update_center.ttl_seconds must be at least 60")
+	}
+
+	return nil
+}

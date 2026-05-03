@@ -34,6 +34,8 @@ func TestEndToEnd(t *testing.T) {
 	defer upstreamServer.Close()
 
 	cacheDir := t.TempDir()
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: 10 * 1024 * 1024, Path: cacheDir},
 		Upstream: config.UpstreamConfig{URL: upstreamServer.URL, TimeoutSeconds: 30},
@@ -41,6 +43,10 @@ func TestEndToEnd(t *testing.T) {
 		Admin:    config.AdminConfig{Port: 0},
 		TTL:      config.TTLConfig{Enabled: false},
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {

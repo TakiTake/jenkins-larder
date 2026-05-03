@@ -31,12 +31,18 @@ func TestCacheServeStaleOnUpstreamFailure(t *testing.T) {
 	defer upstream.Close()
 
 	cacheDir := t.TempDir()
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: 100 * 1024 * 1024, Path: cacheDir},
 		Upstream: config.UpstreamConfig{URL: upstream.URL, TimeoutSeconds: 10},
 		Server:   config.ServerConfig{Port: 0, MetricsPort: 0},
 		Admin:    config.AdminConfig{Port: 0},
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {
@@ -108,12 +114,18 @@ func TestCacheUpstreamFailureNoStale(t *testing.T) {
 	defer upstream.Close()
 
 	cacheDir := t.TempDir()
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: 100 * 1024 * 1024, Path: cacheDir},
 		Upstream: config.UpstreamConfig{URL: upstream.URL, TimeoutSeconds: 10},
 		Server:   config.ServerConfig{Port: 0, MetricsPort: 0},
 		Admin:    config.AdminConfig{Port: 0},
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {
@@ -145,12 +157,18 @@ func TestCacheEnsureSpaceEviction(t *testing.T) {
 	defer upstream.Close()
 
 	cacheDir := t.TempDir()
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: 120, Path: cacheDir}, // Room for ~2 plugins
 		Upstream: config.UpstreamConfig{URL: upstream.URL, TimeoutSeconds: 10},
 		Server:   config.ServerConfig{Port: 0, MetricsPort: 0},
 		Admin:    config.AdminConfig{Port: 0},
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {
@@ -327,12 +345,18 @@ func TestCacheServeStaleWithMetadata(t *testing.T) {
 	defer upstream.Close()
 
 	cacheDir := t.TempDir()
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: 100 * 1024 * 1024, Path: cacheDir},
 		Upstream: config.UpstreamConfig{URL: upstream.URL, TimeoutSeconds: 10},
 		Server:   config.ServerConfig{Port: 0, MetricsPort: 0},
 		Admin:    config.AdminConfig{Port: 0},
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {

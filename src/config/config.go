@@ -14,6 +14,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Admin    AdminConfig    `yaml:"admin"`
 	TTL      TTLConfig      `yaml:"ttl"`
+	Larder   LarderConfig   `yaml:"larder"` // Unified Larder configuration
 }
 
 type StorageConfig struct {
@@ -38,6 +39,18 @@ type AdminConfig struct {
 type TTLConfig struct {
 	Enabled      bool `yaml:"enabled"`
 	DefaultHours int  `yaml:"default_hours"`
+}
+
+// LarderConfig contains settings for the unified Larder service.
+type LarderConfig struct {
+	RSA struct {
+		KeyPath  string `yaml:"key_path"`
+		CertPath string `yaml:"cert_path"`
+	} `yaml:"rsa"`
+	UpdateCenter struct {
+		BaseURL    string `yaml:"base_url"`
+		TTLSeconds int    `yaml:"ttl_seconds"`
+	} `yaml:"update_center"`
 }
 
 // Load reads configuration from YAML file
@@ -70,6 +83,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := ValidateServerPorts(&c.Server, &c.Admin); err != nil {
+		return err
+	}
+	if err := ValidateLarderConfig(&c.Larder); err != nil {
 		return err
 	}
 	return nil

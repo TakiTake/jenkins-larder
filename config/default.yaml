@@ -18,3 +18,11 @@ admin:
 ttl:
   enabled: false      # No automatic TTL by default (plugins are immutable)
   default_hours: 0    # 0 = infinite cache (unless manually invalidated)
+
+larder:
+  rsa:
+    key_path: /etc/larder/tls/tls.key          # RSA private key (mounted from Secret)
+    cert_path: /etc/larder/tls/tls.crt         # RSA certificate (mounted from Secret)
+  update_center:
+    base_url: http://larder.larder.svc.cluster.local:8080  # This service's URL
+    ttl_seconds: 3600                                       # Cache update-center.json for 1 hour

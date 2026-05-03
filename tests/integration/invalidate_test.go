@@ -28,12 +28,18 @@ func TestManualCacheInvalidation(t *testing.T) {
 	defer upstreamServer.Close()
 
 	cacheDir := t.TempDir()
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: 100 * 1024 * 1024, Path: cacheDir},
 		Upstream: config.UpstreamConfig{URL: upstreamServer.URL, TimeoutSeconds: 10},
 		Server:   config.ServerConfig{Port: 0, MetricsPort: 0},
 		Admin:    config.AdminConfig{Port: 0},
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {
@@ -119,6 +125,8 @@ func TestTTLPolicyRefresh(t *testing.T) {
 	defer upstreamServer.Close()
 
 	cacheDir := t.TempDir()
+	keyPath, certPath := createTestRSAKeys(t)
+
 	cfg := &config.Config{
 		Storage:  config.StorageConfig{LimitBytes: 100 * 1024 * 1024, Path: cacheDir},
 		Upstream: config.UpstreamConfig{URL: upstreamServer.URL, TimeoutSeconds: 10},
@@ -126,6 +134,10 @@ func TestTTLPolicyRefresh(t *testing.T) {
 		Admin:    config.AdminConfig{Port: 0},
 		TTL:      config.TTLConfig{Enabled: true, DefaultHours: 0}, // 0 hours = always stale
 	}
+	cfg.Larder.RSA.KeyPath = keyPath
+	cfg.Larder.RSA.CertPath = certPath
+	cfg.Larder.UpdateCenter.BaseURL = "http://localhost:8080"
+	cfg.Larder.UpdateCenter.TTLSeconds = 3600
 
 	srv, err := server.New(cfg)
 	if err != nil {
