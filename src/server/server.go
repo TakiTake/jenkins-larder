@@ -33,9 +33,14 @@ type Server struct {
 	metricsServer  *http.Server
 }
 
-// ucCache stores the rendered and signed update-center.json with TTL.
+// ucCache stores rendered and signed update-center.json responses keyed by
+// Jenkins version string (empty string = no version parameter).
 type ucCache struct {
-	mu     sync.Mutex
+	mu      sync.Mutex
+	entries map[string]ucCacheEntry
+}
+
+type ucCacheEntry struct {
 	data   []byte
 	expiry time.Time
 }
@@ -74,12 +79,13 @@ func New(cfg *config.Config) (*Server, error) {
 	}, nil
 }
 
-// PluginHandler returns the HTTP handler for plugin download requests.
-// Useful for testing with httptest.
+// PluginHandler returns the HTTP handler for the plugin server (downloads +
+// update-center endpoints). Useful for testing with httptest.
 func (s *Server) PluginHandler() http.Handler {
 	mux := http.NewServeMux()
-	downloadHandler := NewDownloadHandler(s.cache)
-	mux.Handle("/download/plugins/", downloadHandler)
+	mux.Handle("/download/plugins/", NewDownloadHandler(s.cache))
+	mux.HandleFunc("/update-center.json", s.handleUpdateCenter)
+	mux.HandleFunc("/update-center-ca.crt", s.handleCert)
 	return mux
 }
 
@@ -104,18 +110,9 @@ func (s *Server) MetricsHandler() http.Handler {
 
 // Start starts all HTTP servers (plugin, admin, metrics)
 func (s *Server) Start() error {
-	// Set up plugin download server
-	pluginMux := http.NewServeMux()
-	downloadHandler := NewDownloadHandler(s.cache)
-	pluginMux.Handle("/download/plugins/", downloadHandler)
-
-	// Add update-center.json handler
-	pluginMux.HandleFunc("/update-center.json", s.handleUpdateCenter)
-	pluginMux.HandleFunc("/update-center-ca.crt", s.handleCert)
-
 	s.pluginServer = &http.Server{
 		Addr:         fmt.Sprintf(":%d", s.config.Server.Port),
-		Handler:      pluginMux,
+		Handler:      s.PluginHandler(),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 5 * time.Minute, // Allow time for large plugin downloads
 	}
@@ -220,8 +217,10 @@ func (s *Server) handleUpdateCenter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	version := r.URL.Query().Get("version")
+
 	// Check cache
-	if cached := s.ucCache.get(); cached != nil {
+	if cached := s.ucCache.get(version); cached != nil {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
@@ -231,11 +230,18 @@ func (s *Server) handleUpdateCenter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build upstream URL. When version is set, the upstream redirects
+	// /update-center.json?version=X to /dynamic-stable-X/update-center.json.
+	upstreamURL := s.config.Upstream.URL + "/update-center.json"
+	if version != "" {
+		upstreamURL += "?version=" + version
+	}
+
 	// Fetch from upstream
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	raw, err := updatecenter.Fetch(ctx, s.upstreamClient, s.config.Upstream.URL+"/update-center.json")
+	raw, err := updatecenter.Fetch(ctx, s.upstreamClient, upstreamURL)
 	if err != nil {
 		slog.Error("failed to fetch update center", "err", err)
 		http.Error(w, "failed to fetch update center", http.StatusInternalServerError)
@@ -272,9 +278,9 @@ func (s *Server) handleUpdateCenter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cache
+	// Cache per version
 	ttl := time.Duration(s.config.Larder.UpdateCenter.TTLSeconds) * time.Second
-	s.ucCache.set(rendered, ttl)
+	s.ucCache.set(version, rendered, ttl)
 
 	// Serve
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -302,25 +308,23 @@ func (s *Server) handleCert(w http.ResponseWriter, r *http.Request) {
 // Helper functions for update-center.json handling
 
 func newUCCache() *ucCache {
-	return &ucCache{}
+	return &ucCache{entries: make(map[string]ucCacheEntry)}
 }
 
-func (c *ucCache) set(data []byte, ttl time.Duration) {
+func (c *ucCache) set(version string, data []byte, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.data = data
-	c.expiry = time.Now().Add(ttl)
+	c.entries[version] = ucCacheEntry{data: data, expiry: time.Now().Add(ttl)}
 }
 
-func (c *ucCache) get() []byte {
+func (c *ucCache) get(version string) []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if time.Now().After(c.expiry) {
+	e, ok := c.entries[version]
+	if !ok || time.Now().After(e.expiry) {
 		return nil
 	}
-
-	return c.data
+	return e.data
 }
 
 func loadKeyAndCert(keyPath, certPath string) (*rsa.PrivateKey, *x509.Certificate, []byte, error) {
