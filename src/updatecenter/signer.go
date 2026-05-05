@@ -1,6 +1,7 @@
 package updatecenter
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -34,8 +35,10 @@ func (s *Signer) Sign(uc map[string]interface{}) error {
 	// Remove any existing signature
 	delete(uc, "signature")
 
-	// Marshal to JSON to get the bytes we'll sign
-	jsonBytes, err := json.Marshal(uc)
+	// Marshal to compact JSON without HTML escaping so the digest matches
+	// what Jenkins computes via JSONObject.toString() (which also does not
+	// HTML-escape &, <, >).
+	jsonBytes, err := marshalNoEscape(uc)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
@@ -63,10 +66,10 @@ func (s *Signer) Sign(uc map[string]interface{}) error {
 
 	// Create the signature block
 	signature := map[string]interface{}{
-		"certificates": []string{certB64},
-		"correct_digest": base64.StdEncoding.EncodeToString(sha1Hash[:]),
-		"correct_digest512": hex.EncodeToString(sha512Hash[:]),
-		"correct_signature": base64.StdEncoding.EncodeToString(sha1Sig),
+		"certificates":         []string{certB64},
+		"correct_digest":       base64.StdEncoding.EncodeToString(sha1Hash[:]),
+		"correct_digest512":    hex.EncodeToString(sha512Hash[:]),
+		"correct_signature":    base64.StdEncoding.EncodeToString(sha1Sig),
 		"correct_signature512": hex.EncodeToString(sha512Sig),
 	}
 
@@ -74,4 +77,18 @@ func (s *Signer) Sign(uc map[string]interface{}) error {
 	uc["signature"] = signature
 
 	return nil
+}
+
+// marshalNoEscape marshals v to compact JSON with HTML escaping disabled.
+// Go's json.Marshal escapes &, <, > by default; Java's JSONObject.toString()
+// does not, so we must match Java's behaviour for digest compatibility.
+func marshalNoEscape(v interface{}) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	// Encode adds a trailing newline; strip it so the digest is clean.
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }

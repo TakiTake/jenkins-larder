@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -25,6 +26,14 @@ func main() {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	if cfg.Larder.UpdateCenter.BaseURL == "" {
+		ip, err := config.ContainerIP()
+		if err != nil {
+			log.Fatalf("Failed to detect container IP: %v", err)
+		}
+		cfg.Larder.UpdateCenter.BaseURL = fmt.Sprintf("http://%s:%d", ip, cfg.Server.Port)
 	}
 
 	// Setup structured logging

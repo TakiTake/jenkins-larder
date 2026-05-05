@@ -21,8 +21,8 @@ ttl:
 
 larder:
   rsa:
-    key_path: /etc/larder/tls/tls.key          # RSA private key (mounted from Secret)
-    cert_path: /etc/larder/tls/tls.crt         # RSA certificate (mounted from Secret)
+    key_path: /etc/larder/tls.key          # RSA private key (mounted from Secret)
+    cert_path: /etc/larder/tls.crt         # RSA certificate (mounted from Secret)
   update_center:
-    base_url: http://larder.larder.svc.cluster.local:8080  # This service's URL
-    ttl_seconds: 3600                                       # Cache update-center.json for 1 hour
+    base_url: ""          # Auto-detected from container network interface at startup
+    ttl_seconds: 3600     # Cache update-center.json for 1 hour

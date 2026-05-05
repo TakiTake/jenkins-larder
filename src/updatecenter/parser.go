@@ -36,13 +36,19 @@ func Parse(raw []byte) (map[string]interface{}, error) {
 }
 
 // Render marshals the JSON and wraps it in JSONP format.
+// HTML escaping is disabled so &, <, > are preserved as literals, matching
+// the output of Java's JSONObject.toString() used by Jenkins for verification.
 func Render(uc map[string]interface{}) ([]byte, error) {
-	jsonBytes, err := json.MarshalIndent(uc, "", "  ")
-	if err != nil {
+	var jsonBuf bytes.Buffer
+	enc := json.NewEncoder(&jsonBuf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(uc); err != nil {
 		return nil, fmt.Errorf("failed to marshal JSON: %w", err)
 	}
+	// Encode appends a trailing newline; strip it so the JSONP wrapper is tidy.
+	jsonBytes := bytes.TrimRight(jsonBuf.Bytes(), "\n")
 
-	// Wrap in JSONP format
 	var buf bytes.Buffer
 	buf.WriteString("updateCenter.post(\n")
 	buf.Write(jsonBytes)
