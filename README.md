@@ -14,12 +14,38 @@ A high-performance caching proxy that stores Jenkins plugins locally, reducing b
 
 ## Architecture
 
-Jenkins Larder implements the same URL pattern as Jenkins Update Center:
+Jenkins Larder exposes two kinds of endpoints on the same port:
+
 ```
-/download/plugins/{name}/{version}/{file}
+GET /update-center.json[?version=<jenkins-version>]
+GET /download/plugins/{name}/{version}/{file}
 ```
 
-When Jenkins requests a plugin, the larder:
+### Cache Policy
+
+**Plugin files** are cached by plugin name and version only:
+
+```
+plugins/git/4.11.0/git.hpi   ← single copy regardless of Jenkins version
+```
+
+A plugin binary for a given version is identical no matter which Jenkins instance requests it, so one cached copy serves all consumers.
+
+**`update-center.json`** is cached per Jenkins version:
+
+```
+ucCache[""]        ← no ?version= param (latest)
+ucCache["2.492.3"] ← ?version=2.492.3
+ucCache["2.491.0"] ← ?version=2.491.0
+```
+
+Older Jenkins instances append `?version=<jenkins-version>` when fetching the update center. The upstream redirects this to a version-specific catalog (e.g. `/dynamic-stable-2.492.3/update-center.json`) whose plugin list differs from the latest. Larder forwards the parameter, caches the response under that version key, and re-signs the JSON with its own RSA key so Jenkins accepts it.
+
+Each cache entry has an independent TTL (default 1 hour). Plugin download URLs inside the JSON are rewritten from `updates.jenkins.io` to Larder's own address before signing.
+
+### Request Flow
+
+When Jenkins requests a plugin:
 1. Checks local provisions (cache)
 2. Serves from stock if available (cache hit)
 3. Fetches from upstream if not stocked (cache miss)
