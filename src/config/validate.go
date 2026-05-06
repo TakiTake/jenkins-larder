@@ -83,6 +83,15 @@ func ValidateLarderConfig(cfg *LarderConfig) error {
 		return errors.New("larder.rsa.cert_path cannot be empty")
 	}
 
+	if cfg.TLS.Enabled {
+		if cfg.TLS.CertPath == "" {
+			return errors.New("larder.tls.cert_path cannot be empty when tls is enabled")
+		}
+		if cfg.TLS.KeyPath == "" {
+			return errors.New("larder.tls.key_path cannot be empty when tls is enabled")
+		}
+	}
+
 	if cfg.UpdateCenter.BaseURL != "" {
 		baseURL, err := url.Parse(cfg.UpdateCenter.BaseURL)
 		if err != nil {

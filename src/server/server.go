@@ -140,8 +140,14 @@ func (s *Server) Start() error {
 	errChan := make(chan error, 3)
 
 	go func() {
-		slog.Info("Starting plugin server", "port", s.config.Server.Port)
-		if err := s.pluginServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slog.Info("Starting plugin server", "port", s.config.Server.Port, "tls", s.config.Larder.TLS.Enabled)
+		var err error
+		if s.config.Larder.TLS.Enabled {
+			err = s.pluginServer.ListenAndServeTLS(s.config.Larder.TLS.CertPath, s.config.Larder.TLS.KeyPath)
+		} else {
+			err = s.pluginServer.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			errChan <- fmt.Errorf("plugin server error: %w", err)
 		}
 	}()
@@ -212,7 +218,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Handler methods for update-center.json
 
 func (s *Server) handleUpdateCenter(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
+	if r.Method != "GET" && r.Method != "HEAD" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}

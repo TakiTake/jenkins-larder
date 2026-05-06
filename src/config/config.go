@@ -47,6 +47,11 @@ type LarderConfig struct {
 		KeyPath  string `yaml:"key_path"`
 		CertPath string `yaml:"cert_path"`
 	} `yaml:"rsa"`
+	TLS struct {
+		Enabled  bool   `yaml:"enabled"`
+		CertPath string `yaml:"cert_path"`
+		KeyPath  string `yaml:"key_path"`
+	} `yaml:"tls"`
 	UpdateCenter struct {
 		BaseURL    string `yaml:"base_url"`
 		TTLSeconds int    `yaml:"ttl_seconds"`

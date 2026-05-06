@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"log"
 	"log/slog"
@@ -33,7 +35,14 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to detect container IP: %v", err)
 		}
-		cfg.Larder.UpdateCenter.BaseURL = fmt.Sprintf("http://%s:%d", ip, cfg.Server.Port)
+		scheme := "http"
+		if cfg.Larder.TLS.Enabled {
+			scheme = "https"
+			if err := regenerateTLSCert(cfg, ip); err != nil {
+				log.Fatalf("Failed to regenerate TLS certificate: %v", err)
+			}
+		}
+		cfg.Larder.UpdateCenter.BaseURL = fmt.Sprintf("%s://%s:%d", scheme, ip, cfg.Server.Port)
 	}
 
 	// Setup structured logging
@@ -90,4 +99,40 @@ func main() {
 	}
 
 	slog.Info("Server stopped")
+}
+
+// regenerateTLSCert loads the RSA key and writes a new self-signed certificate
+// with an IP SAN for ip into cfg.Larder.TLS.CertPath. Logs the PEM so the
+// operator can install it into Jenkins's trust stores.
+func regenerateTLSCert(cfg *config.Config, ip string) error {
+	keyPEM, err := os.ReadFile(cfg.Larder.RSA.KeyPath)
+	if err != nil {
+		return fmt.Errorf("read RSA key: %w", err)
+	}
+	block, _ := pem.Decode(keyPEM)
+	if block == nil {
+		return fmt.Errorf("no PEM block in RSA key file")
+	}
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("parse RSA key: %w", err)
+	}
+
+	certPath := cfg.Larder.TLS.CertPath
+	if certPath == "" {
+		certPath = cfg.Larder.RSA.CertPath
+	}
+	if err := config.RegenerateTLSCert(key, ip, certPath); err != nil {
+		return err
+	}
+
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		return fmt.Errorf("read regenerated cert: %w", err)
+	}
+	log.Printf("TLS certificate regenerated for IP %s — install in Jenkins with:\n"+
+		"  cat tmp/tls.crt | container exec -i jenkins sh -c \"cat > /var/jenkins_home/update-center-rootCAs/larder.crt\"\n"+
+		"  cat tmp/tls.crt | container exec -i jenkins keytool -importcert -noprompt -alias larder -keystore /opt/java/openjdk/lib/security/cacerts -storepass changeit\n"+
+		"  container stop jenkins && container start jenkins\n\n%s", ip, certPEM)
+	return nil
 }
