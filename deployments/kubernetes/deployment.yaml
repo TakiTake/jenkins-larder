@@ -1,0 +1,62 @@
+# TODO (T067): Create Kubernetes deployment manifest
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins-mirror
+  labels:
+    app: jenkins-mirror
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins-mirror
+  template:
+    metadata:
+      labels:
+        app: jenkins-mirror
+    spec:
+      containers:
+      - name: jenkins-mirror
+        image: yourorg/jenkins-mirror:latest
+        ports:
+        - containerPort: 8080
+          name: plugins
+        - containerPort: 8081
+          name: admin
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: CONFIG_PATH
+          value: /etc/jenkins-mirror/config.yaml
+        volumeMounts:
+        - name: config
+          mountPath: /etc/jenkins-mirror
+        - name: cache
+          mountPath: /var/cache/jenkins-plugins
+        livenessProbe:
+          httpGet:
+            path: /admin/health
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /admin/health
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: config
+        configMap:
+          name: jenkins-mirror-config
+      - name: cache
+        emptyDir:
+          sizeLimit: 15Gi

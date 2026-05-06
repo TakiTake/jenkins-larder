@@ -1,0 +1,26 @@
+# TODO (T069): Create Kubernetes ConfigMap for configuration
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-mirror-config
+data:
+  config.yaml: |
+    storage:
+      limit_bytes: 10737418240  # 10GB
+      path: /var/cache/jenkins-plugins
+
+    upstream:
+      url: https://updates.jenkins.io
+      timeout_seconds: 60
+
+    server:
+      port: 8080
+      metrics_port: 9090
+
+    admin:
+      port: 8081
+
+    ttl:
+      enabled: false
+      default_hours: 0

@@ -1,0 +1,341 @@
+openapi: 3.0.3
+info:
+  title: Jenkins Plugin Cache Mirror API
+  description: |
+    HTTP API for the Jenkins Plugin Cache Mirror server.
+    Provides plugin download mirroring and administrative operations.
+  version: 1.0.0
+  contact:
+    name: Platform Team
+
+servers:
+  - url: http://jenkins-mirror.default.svc.cluster.local:8080
+    description: Plugin mirror endpoint (matches Jenkins update center pattern)
+  - url: http://jenkins-mirror.default.svc.cluster.local:8081
+    description: Admin API endpoint
+  - url: http://jenkins-mirror.default.svc.cluster.local:9090
+    description: Prometheus metrics endpoint
+
+paths:
+  # ===== MIRROR ENDPOINTS (Port 8080) =====
+
+  /download/plugins/{name}/{version}/{file}:
+    get:
+      summary: Download Jenkins plugin
+      description: |
+        Serves Jenkins plugin files from local mirror. If not cached, downloads from
+        upstream Jenkins update center, caches locally, and serves to client.
+
+        This endpoint matches the Jenkins update center URL pattern to enable
+        transparent mirroring via JENKINS_UC_DOWNLOAD environment variable.
+      operationId: downloadPlugin
+      tags:
+        - Mirror
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Plugin identifier (e.g., "git", "workflow-aggregator")
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9-]{1,100}$'
+            example: "git"
+        - name: version
+          in: path
+          required: true
+          description: Plugin version (semantic versioning)
+          schema:
+            type: string
+            pattern: '^\d+\.\d+(\.\d+)?(-[a-zA-Z0-9]+)?$'
+            example: "5.0.0"
+        - name: file
+          in: path
+          required: true
+          description: File name (must match {name}.{extension})
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9-]+\.(hpi|jpi|hpi\.sha256|jpi\.sha256)$'
+            example: "git.hpi"
+      responses:
+        '200':
+          description: Plugin file successfully served (from cache or freshly downloaded)
+          headers:
+            X-Cache-Status:
+              description: Cache hit or miss indicator
+              schema:
+                type: string
+                enum: [HIT, MISS, STALE]
+            X-File-Size:
+              description: Plugin file size in bytes
+              schema:
+                type: integer
+            Content-Type:
+              description: MIME type of plugin file
+              schema:
+                type: string
+                enum:
+                  - application/java-archive
+                  - text/plain
+          content:
+            application/java-archive:
+              schema:
+                type: string
+                format: binary
+            text/plain:
+              schema:
+                type: string
+                description: SHA-256 checksum (for .sha256 files)
+        '400':
+          description: Invalid plugin name, version, or file format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plugin not found in upstream Jenkins update center
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Upstream Jenkins update center unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Upstream download timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '507':
+          description: Insufficient storage (cache full, cannot evict)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== ADMIN ENDPOINTS (Port 8081) =====
+
+  /admin/cache/invalidate:
+    post:
+      summary: Invalidate cached plugin
+      description: |
+        Manually removes a specific plugin version from the mirror cache.
+        Next request for this plugin will re-download from upstream.
+      operationId: invalidatePlugin
+      tags:
+        - Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - version
+              properties:
+                name:
+                  type: string
+                  pattern: '^[a-zA-Z0-9-]{1,100}$'
+                  description: Plugin name
+                  example: "git"
+                version:
+                  type: string
+                  pattern: '^\d+\.\d+(\.\d+)?(-[a-zA-Z0-9]+)?$'
+                  description: Plugin version
+                  example: "5.0.0"
+      responses:
+        '200':
+          description: Plugin successfully invalidated and removed from cache
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "invalidated"
+                  plugin:
+                    type: string
+                    example: "git:5.0.0"
+                  bytes_freed:
+                    type: integer
+                    description: Storage space freed in bytes
+                    example: 10485760
+        '404':
+          description: Plugin version not found in cache (already not cached)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/cache/stats:
+    get:
+      summary: Get cache statistics
+      description: Returns current cache statistics including hit rate, storage usage, and cached plugin count.
+      operationId: getCacheStats
+      tags:
+        - Admin
+      responses:
+        '200':
+          description: Cache statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheStats'
+
+  /admin/health:
+    get:
+      summary: Health check
+      description: Returns server health status
+      operationId: healthCheck
+      tags:
+        - Admin
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  uptime_seconds:
+                    type: integer
+                    example: 86400
+        '503':
+          description: Server is unhealthy (e.g., storage unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== METRICS ENDPOINT (Port 9090) =====
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: |
+        Exposes Prometheus metrics in text format for scraping.
+        Includes request counts, latency histograms, storage usage, and error rates.
+      operationId: getMetrics
+      tags:
+        - Metrics
+      responses:
+        '200':
+          description: Prometheus metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP mirror_requests_total Total mirror requests by status
+                  # TYPE mirror_requests_total counter
+                  mirror_requests_total{status="hit"} 850
+                  mirror_requests_total{status="miss"} 150
+                  mirror_requests_total{status="error"} 5
+
+                  # HELP mirror_request_duration_seconds Request latency histogram
+                  # TYPE mirror_request_duration_seconds histogram
+                  mirror_request_duration_seconds_bucket{status="hit",le="0.05"} 800
+                  mirror_request_duration_seconds_bucket{status="hit",le="0.5"} 850
+                  mirror_request_duration_seconds_bucket{status="hit",le="+Inf"} 850
+                  mirror_request_duration_seconds_sum{status="hit"} 42.5
+                  mirror_request_duration_seconds_count{status="hit"} 850
+
+                  # HELP mirror_storage_bytes_used Current storage usage
+                  # TYPE mirror_storage_bytes_used gauge
+                  mirror_storage_bytes_used 5368709120
+
+                  # HELP mirror_cached_plugins_total Number of cached plugin versions
+                  # TYPE mirror_cached_plugins_total gauge
+                  mirror_cached_plugins_total 512
+
+components:
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "plugin_not_found"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Plugin git:5.0.0 not found in upstream Jenkins update center"
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+
+    CacheStats:
+      type: object
+      required:
+        - total_requests
+        - cache_hits
+        - cache_misses
+        - hit_rate
+        - storage_used_bytes
+        - storage_limit_bytes
+        - cached_plugins
+      properties:
+        total_requests:
+          type: integer
+          description: Total requests served since startup
+          example: 1005
+        cache_hits:
+          type: integer
+          description: Requests served from cache
+          example: 850
+        cache_misses:
+          type: integer
+          description: Requests that required upstream download
+          example: 150
+        errors:
+          type: integer
+          description: Failed requests
+          example: 5
+        hit_rate:
+          type: number
+          format: float
+          description: Cache hit rate (0.0 to 1.0)
+          example: 0.846
+        storage_used_bytes:
+          type: integer
+          description: Current storage usage in bytes
+          example: 5368709120
+        storage_limit_bytes:
+          type: integer
+          description: Configured storage limit in bytes
+          example: 10737418240
+        cached_plugins:
+          type: integer
+          description: Number of cached plugin versions
+          example: 512
+        evictions:
+          type: integer
+          description: Total number of LRU evictions
+          example: 23
+        upstream_failures:
+          type: integer
+          description: Failed upstream requests
+          example: 2
+        checksum_failures:
+          type: integer
+          description: Checksum validation failures
+          example: 0

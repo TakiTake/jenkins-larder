@@ -1,0 +1,65 @@
+# Binaries for programs and plugins
+/larder
+/larder-keygen
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+*.prof
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+bin/
+dist/
+build/
+
+# Cache directory (plugin storage - not source code)
+/var/cache/jenkins-plugins/
+
+# Temporary files
+*.tmp
+*.log
+*.pid
+
+# Kubernetes secrets
+*.secret.yaml
+secrets/
+kubeconfig*
+*.key
+*.crt
+
+# lsmcp cache
+.lsmcp/cache
+
+# AI Agent
+.claude/settings.local.json

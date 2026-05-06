@@ -1,0 +1,6 @@
+{
+  "preset": "gopls",
+  "indexFiles": [
+    "**/*.go"
+  ]
+}

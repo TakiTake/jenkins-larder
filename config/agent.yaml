@@ -1,0 +1,37 @@
+# Larder unified configuration example
+# This file demonstrates the unified Larder service that handles both:
+# - Caching of .hpi plugin files
+# - Serving rewritten and signed update-center.json
+
+storage:
+  limit_bytes: 500000000000  # 500 GB for large deployments
+  path: /var/cache/larder
+
+upstream:
+  url: https://updates.jenkins.io
+  timeout_seconds: 60
+
+server:
+  port: 8080
+  metrics_port: 9090
+
+admin:
+  port: 8081
+
+ttl:
+  enabled: false
+  default_hours: 0
+
+larder:
+  rsa:
+    # Path to the RSA private key (mounted from Kubernetes Secret)
+    key_path: /etc/larder/tls/tls.key
+    # Path to the certificate (mounted from Kubernetes Secret)
+    cert_path: /etc/larder/tls/tls.crt
+  update_center:
+    # The base URL that Jenkins will use to access this Larder service
+    # Plugin URLs in the rewritten update-center.json will point here
+    base_url: http://larder.larder.svc.cluster.local:8080
+    # TTL for caching the rewritten update-center.json (in seconds)
+    # Jenkins will be served a cached copy if it hasn't expired
+    ttl_seconds: 3600

@@ -1,0 +1,9 @@
+[settings]
+env_shell_expand = true
+
+[tools]
+go = "1.25.5"
+"go:github.com/golangci/golangci-lint/cmd/golangci-lint" = "latest"
+
+[env]
+CONFIG_PATH = "${PWD}/config/test.yaml"

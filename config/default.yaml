@@ -1,0 +1,32 @@
+# Jenkins Plugin Cache Mirror - Default Configuration
+
+storage:
+  limit_bytes: 10737418240  # 10GB default storage limit
+  path: /var/cache/jenkins-plugins
+
+upstream:
+  url: https://updates.jenkins.io
+  timeout_seconds: 60
+
+server:
+  port: 8080          # Plugin download endpoint
+  metrics_port: 9090  # Prometheus metrics endpoint
+
+admin:
+  port: 8081          # Admin API endpoint
+
+ttl:
+  enabled: false      # No automatic TTL by default (plugins are immutable)
+  default_hours: 0    # 0 = infinite cache (unless manually invalidated)
+
+larder:
+  rsa:
+    key_path: /etc/larder/tls.key          # RSA private key for signing update-center.json
+    cert_path: /etc/larder/tls.crt         # RSA certificate for signing update-center.json
+  tls:
+    enabled: true
+    key_path: /etc/larder/tls.key          # TLS private key (same file as rsa.key_path)
+    cert_path: /etc/larder/tls.crt         # TLS certificate (same file as rsa.cert_path)
+  update_center:
+    base_url: ""          # Auto-detected at startup; uses https:// when tls.enabled=true
+    ttl_seconds: 3600     # Cache update-center.json for 1 hour

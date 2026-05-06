@@ -1,0 +1,46 @@
+# Source control
+.git/
+.gitignore
+
+# Documentation
+*.md
+docs/
+specs/
+.specify/
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go build artifacts
+*.test
+*.out
+*.prof
+coverage.out
+
+# Test files
+*_test.go
+tests/
+
+# Development files
+.env
+.env.*
+!.env.example
+
+# Deployment manifests (not needed in image)
+deployments/
+*.yaml
+*.yml
+!config/default.yaml
+
+# Build artifacts
+bin/
+dist/
+vendor/

@@ -1,0 +1,26 @@
+storage:
+  limit_bytes: 10737418240  # 10GB
+  path: /tmp/jenkins-mirror-cache
+
+upstream:
+  url: https://updates.jenkins.io
+  timeout_seconds: 60
+
+server:
+  port: 8080
+  metrics_port: 9090
+
+admin:
+  port: 8081
+
+ttl:
+  enabled: false
+  default_hours: 0
+
+larder:
+  rsa:
+    key_path: ./tmp/tls.key
+    cert_path: ./tmp/tls.crt
+  update_center:
+    base_url: http://localhost:8080
+    ttl_seconds: 3600
